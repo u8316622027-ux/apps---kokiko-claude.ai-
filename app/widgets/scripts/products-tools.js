@@ -36,9 +36,17 @@
         }
       };
 
-      const sendRequest = (method, params) =>
+      const sendRequest = (method, params, timeoutMs = 8000) =>
         new Promise((resolve, reject) => {
           const requestId = `mcp-ui-${nextRequestId++}`;
+          let settled = false;
+          const settle = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            window.removeEventListener("message", onMessage);
+            clearTimeout(timerId);
+            fn(value);
+          };
           const onMessage = (event) => {
             const payload = event?.data;
             if (
@@ -48,9 +56,9 @@
             ) {
               return;
             }
-            window.removeEventListener("message", onMessage);
             if (payload.error) {
-              reject(
+              settle(
+                reject,
                 new Error(
                   typeof payload.error.message === "string"
                     ? payload.error.message
@@ -59,8 +67,11 @@
               );
               return;
             }
-            resolve(payload.result || {});
+            settle(resolve, payload.result || {});
           };
+          const timerId = setTimeout(() => {
+            settle(reject, new Error(`MCP request timed out: ${method}`));
+          }, timeoutMs);
           window.addEventListener("message", onMessage, { passive: true });
           targetWindow.postMessage(
             {
@@ -82,7 +93,7 @@
         }
         initializePromise = sendRequest("ui/initialize", {
           protocolVersion: HOST_PROTOCOL_VERSION,
-          clientInfo: {
+          appInfo: {
             name: "kokiko-products-widget",
             version: "0.1.0",
           },
@@ -113,13 +124,91 @@
         });
       };
 
+      const openLink = async (url) => {
+        const targetUrl = normalizeText(url);
+        if (!targetUrl) {
+          return;
+        }
+        try {
+          await initialize();
+          const openLinkResult = await sendRequest("ui/open-link", {
+            url: targetUrl,
+          });
+          debugLog("open_link_result", {
+            url: targetUrl,
+            isError: Boolean(openLinkResult?.isError),
+          });
+          if (!openLinkResult?.isError) {
+            return;
+          }
+        } catch (error) {
+          debugLog("open_link_request_error", {
+            url: targetUrl,
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        }
+
+        if (typeof window.openai?.openUrl === "function") {
+          try {
+            await window.openai.openUrl(targetUrl);
+            return;
+          } catch (_error) {
+            // fall through to browser fallback
+          }
+        }
+
+        try {
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
+        } catch (_error) {
+          debugLog("open_link_popup_blocked", {
+            url: targetUrl,
+            level: "warn",
+          });
+        }
+      };
+
       return {
         initialize,
         callTool,
+        openLink,
       };
     };
 
     const hostBridge = createHostBridge();
+    let sizeObserver = null;
+    let lastReportedHeight = 0;
+
+    const reportWidgetSize = () => {
+      const bodyHeight = Math.ceil(document.body?.scrollHeight || 0);
+      const docHeight = Math.ceil(document.documentElement?.scrollHeight || 0);
+      const nextHeight = Math.max(bodyHeight, docHeight);
+      if (nextHeight <= 0 || nextHeight === lastReportedHeight) {
+        return;
+      }
+      lastReportedHeight = nextHeight;
+      window.parent?.postMessage(
+        {
+          jsonrpc: "2.0",
+          method: "ui/notifications/size-changed",
+          params: { height: nextHeight },
+        },
+        "*",
+      );
+    };
+
+    const startAutoResize = () => {
+      if (typeof ResizeObserver !== "function" || sizeObserver) {
+        reportWidgetSize();
+        return;
+      }
+      sizeObserver = new ResizeObserver(() => {
+        reportWidgetSize();
+      });
+      sizeObserver.observe(document.body);
+      sizeObserver.observe(document.documentElement);
+      reportWidgetSize();
+    };
 
     const extractToolPage = (payload) => {
       if (!payload || typeof payload !== "object") {
@@ -486,8 +575,10 @@
     };
 
     ctx.actions.searchProducts = searchProducts;
+    ctx.actions.openExternalLink = (url) => hostBridge.openLink(url);
     ctx.tools.waitForInitialPayload = waitForInitialPayload;
     ctx.tools.listenForThemeUpdates = listenForThemeUpdates;
+    startAutoResize();
   };
 
   window.ProductsTools = {
