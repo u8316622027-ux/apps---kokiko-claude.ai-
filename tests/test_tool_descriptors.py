@@ -14,6 +14,8 @@ def test_tool_descriptor_includes_ui_meta_for_widget() -> None:
 
     assert payload["outputTemplate"] == "ui://widget/products.html"
     assert payload["_meta"]["openai/outputTemplate"] == "ui://widget/products.html"
+    assert payload["_meta"]["ui"]["resourceUri"] == "ui://widget/products.html"
+    assert payload["_meta"]["ui"]["visibility"] == ["model", "app"]
     assert payload["_meta"]["openai/widgetDomain"]
     assert payload["_meta"]["openai/widgetCSP"]["connect_domains"]
     assert payload["_meta"]["openai/widgetCSP"]["resource_domains"]
@@ -55,6 +57,21 @@ def test_widget_ui_config_includes_resource_and_connect_domains(
     assert "https://cdn.jsdelivr.net" not in csp["resourceDomains"]
 
 
+def test_widget_ui_config_normalizes_claude_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "MCP_WIDGET_DOMAIN",
+        "https://88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com",
+    )
+    mcp_server._reset_server_caches_for_tests()
+
+    registry = tool_registry.create_tool_registry()
+    ui_config = registry["search_products"].ui
+    csp = ui_config["csp"]
+
+    assert ui_config["domain"] == "88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com"
+    assert "https://88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com" in csp["resourceDomains"]
+
+
 def test_resources_list_uses_snakecase_csp_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -70,3 +87,31 @@ def test_resources_list_uses_snakecase_csp_keys(
 
     assert "connect_domains" in widget_csp
     assert "resource_domains" in widget_csp
+
+
+def test_resources_list_includes_mcp_ui_meta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_WIDGET_DOMAIN", "https://widgets.example")
+    mcp_server._reset_server_caches_for_tests()
+
+    response = mcp_server.handle_rpc_request(
+        {"jsonrpc": "2.0", "id": "1", "method": "resources/list"}
+    )
+
+    resource_meta = response["result"]["resources"][0]["_meta"]
+    ui_meta = resource_meta["ui"]
+
+    assert ui_meta["domain"] == "https://widgets.example"
+    assert ui_meta["prefersBorder"] is True
+    assert "https://api.apteka.md" in ui_meta["csp"]["connectDomains"]
+    assert "https://widgets.example" in ui_meta["csp"]["resourceDomains"]
+
+
+def test_initialize_advertises_mcp_ui_extension() -> None:
+    response = mcp_server.handle_rpc_request({"jsonrpc": "2.0", "id": "1", "method": "initialize"})
+
+    capabilities = response["result"]["capabilities"]
+    assert capabilities["extensions"]["io.modelcontextprotocol/ui"]["mimeTypes"] == [
+        "text/html;profile=mcp-app"
+    ]

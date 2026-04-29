@@ -174,7 +174,13 @@ def handle_rpc_request(
             "id": request_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}, "resources": {}},
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "extensions": {
+                        "io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}
+                    },
+                },
                 "serverInfo": {"name": "apteka-mcp", "version": "0.1.0"},
             },
         }
@@ -194,6 +200,20 @@ def handle_rpc_request(
                     "mimeType": "text/html;profile=mcp-app",
                     "description": description,
                     "_meta": {
+                        "ui": {
+                            "csp": {
+                                "connectDomains": connect_domains,
+                                "resourceDomains": resource_domains,
+                            },
+                            **(
+                                {
+                                    "domain": ui_domain,
+                                }
+                                if ui_domain
+                                else {}
+                            ),
+                            "prefersBorder": bool(resource_data["prefers_border"]),
+                        },
                         "openai/widgetDescription": description,
                         "openai/widgetDomain": ui_domain,
                         "openai/widgetCSP": {
@@ -238,6 +258,20 @@ def handle_rpc_request(
                         "mimeType": "text/html;profile=mcp-app",
                         "text": html_text,
                         "_meta": {
+                            "ui": {
+                                "csp": {
+                                    "connectDomains": list(resource_data["connect_domains"]),
+                                    "resourceDomains": list(resource_data["resource_domains"]),
+                                },
+                                **(
+                                    {
+                                        "domain": str(resource_data["domain"]),
+                                    }
+                                    if resource_data.get("domain")
+                                    else {}
+                                ),
+                                "prefersBorder": bool(resource_data["prefers_border"]),
+                            },
                             "openai/widgetDescription": str(resource_data["description"]),
                             "openai/widgetDomain": str(resource_data["domain"]),
                             "openai/widgetCSP": {
@@ -295,17 +329,7 @@ def handle_rpc_request(
                     errored=False,
                     cache_hit=True,
                 )
-                return {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {
-                        "content": [
-                            {"type": "text", "text": _build_tool_success_text(structured_payload)}
-                        ],
-                        "structuredContent": structured_payload,
-                        "isError": False,
-                    },
-                }
+                return _build_tool_result_response(request_id, tool_name, tool, structured_payload)
 
         try:
             result_payload = tool.handler(resolved_arguments)
@@ -322,17 +346,7 @@ def handle_rpc_request(
                 errored=False,
                 cache_hit=False if cache_key is not None else None,
             )
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "content": [
-                        {"type": "text", "text": _build_tool_success_text(structured_payload)}
-                    ],
-                    "structuredContent": structured_payload,
-                    "isError": False,
-                },
-            }
+            return _build_tool_result_response(request_id, tool_name, tool, structured_payload)
         except Exception as exc:  # noqa: BLE001
             _record_tool_result(
                 tool_name,
@@ -481,6 +495,7 @@ def _widget_resource_index() -> dict[str, dict[str, Any]]:
                 "path": relative_path,
                 "description": tool.description,
                 "domain": ui_domain,
+                "prefers_border": bool(tool.ui.get("prefersBorder", True)),
                 "resource_domains": normalized_resource_domains,
                 "connect_domains": normalized_connect_domains,
             },
@@ -651,8 +666,94 @@ def _set_cached_tool_payload(
             _TOOL_RESPONSE_CACHE.popitem(last=False)
 
 
-def _build_tool_success_text(result_payload: dict[str, Any]) -> str:
-    return json.dumps(result_payload, ensure_ascii=False, separators=(",", ":"))
+def _build_tool_result_response(
+    request_id: Any,
+    tool_name: str,
+    tool: ToolDefinition,
+    structured_payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a tool/call result response using embedded widget HTML when available."""
+    template_uri = tool.output_template
+    widget_html = (
+        _build_widget_html_with_data(template_uri, structured_payload) if template_uri else None
+    )
+    if widget_html is not None:
+        resource_index = _widget_resource_index()
+        resource_data = resource_index.get(template_uri.strip(), {})
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "resource",
+                        "resource": {
+                            "uri": template_uri,
+                            "mimeType": "text/html;profile=mcp-app",
+                            "text": widget_html,
+                        },
+                        "_meta": {
+                            "ui": {
+                                "csp": {
+                                    "connectDomains": list(
+                                        resource_data.get("connect_domains", [])
+                                    ),
+                                    "resourceDomains": list(
+                                        resource_data.get("resource_domains", [])
+                                    ),
+                                },
+                                **(
+                                    {
+                                        "domain": str(resource_data["domain"]),
+                                    }
+                                    if resource_data.get("domain")
+                                    else {}
+                                ),
+                                "prefersBorder": bool(resource_data.get("prefers_border", True)),
+                            },
+                        },
+                    }
+                ],
+                "structuredContent": structured_payload,
+                "isError": False,
+            },
+        }
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "content": [],
+            "structuredContent": structured_payload,
+            "isError": False,
+        },
+    }
+
+
+def _build_widget_html_with_data(
+    template_uri: str, structured_payload: dict[str, Any]
+) -> str | None:
+    """Load widget HTML, inline assets, and inject structured data as a script tag."""
+    resource_index = _widget_resource_index()
+    resource_data = resource_index.get(template_uri.strip())
+    if resource_data is None:
+        return None
+    relative_path = str(resource_data["path"])
+    file_path = Path(__file__).resolve().parents[2] / "widgets" / relative_path
+    try:
+        html_text = file_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    html_text = _inline_local_widget_assets(html_text, widget_dir=file_path.parent)
+    data_json = json.dumps(structured_payload, ensure_ascii=False, separators=(",", ":"))
+    # Escape </script> so the inline script tag cannot be prematurely closed by
+    # data values that contain the literal string "</script>".
+    data_json = data_json.replace("</", "<\\/")
+    injection = f"<script>window.__MCP_TOOL_RESULT__={data_json};</script>"
+    if "</head>" in html_text:
+        html_text = html_text.replace("</head>", f"{injection}</head>", 1)
+    else:
+        html_text = injection + html_text
+    return html_text
 
 
 def _inline_local_widget_assets(html_text: str, *, widget_dir: Path) -> str:

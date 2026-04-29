@@ -13,6 +13,202 @@
       setLoading,
       debugLog,
     } = utils;
+    const HOST_PROTOCOL_VERSION = "2026-01-26";
+
+    const createHostBridge = () => {
+      const targetWindow =
+        window.parent && window.parent !== window ? window.parent : window;
+      let nextRequestId = 1;
+      let initializePromise = null;
+      let hostOrigin = "*";
+
+      const sendNotification = (method, params) => {
+        try {
+          targetWindow.postMessage(
+            { jsonrpc: "2.0", method, params: params || {} },
+            hostOrigin,
+          );
+        } catch (error) {
+          debugLog("host_notification_error", {
+            method,
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        }
+      };
+
+      const sendRequest = (method, params, timeoutMs = 8000) =>
+        new Promise((resolve, reject) => {
+          const requestId = `mcp-ui-${nextRequestId++}`;
+          let settled = false;
+          const settle = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            window.removeEventListener("message", onMessage);
+            clearTimeout(timerId);
+            fn(value);
+          };
+          const onMessage = (event) => {
+            const payload = event?.data;
+            if (
+              !payload ||
+              typeof payload !== "object" ||
+              payload.id !== requestId
+            ) {
+              return;
+            }
+            if (hostOrigin === "*" && event.origin && event.origin !== "null") {
+              hostOrigin = event.origin;
+            }
+            if (payload.error) {
+              settle(
+                reject,
+                new Error(
+                  typeof payload.error.message === "string"
+                    ? payload.error.message
+                    : "MCP host request failed",
+                ),
+              );
+              return;
+            }
+            settle(resolve, payload.result || {});
+          };
+          const timerId = setTimeout(() => {
+            settle(reject, new Error(`MCP request timed out: ${method}`));
+          }, timeoutMs);
+          window.addEventListener("message", onMessage, { passive: true });
+          targetWindow.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: requestId,
+              method,
+              params: params || {},
+            },
+            "*",
+          );
+        });
+
+      const initialize = () => {
+        if (typeof window.openai?.callTool === "function") {
+          return Promise.resolve({});
+        }
+        if (initializePromise) {
+          return initializePromise;
+        }
+        initializePromise = sendRequest("ui/initialize", {
+          protocolVersion: HOST_PROTOCOL_VERSION,
+          appInfo: {
+            name: "kokiko-products-widget",
+            version: "0.1.0",
+          },
+          appCapabilities: {
+            tools: {},
+            availableDisplayModes: ["inline", "fullscreen"],
+          },
+        })
+          .then((result) => {
+            sendNotification("ui/notifications/initialized", {});
+            return result;
+          })
+          .catch((error) => {
+            initializePromise = null;
+            throw error;
+          });
+        return initializePromise;
+      };
+
+      const callTool = async (name, argumentsPayload) => {
+        if (typeof window.openai?.callTool === "function") {
+          return window.openai.callTool(name, argumentsPayload);
+        }
+        await initialize();
+        return sendRequest("tools/call", {
+          name,
+          arguments: argumentsPayload || {},
+        });
+      };
+
+      const openLink = async (url) => {
+        const targetUrl = normalizeText(url);
+        if (!targetUrl) {
+          return;
+        }
+        try {
+          await initialize();
+          const openLinkResult = await sendRequest("ui/open-link", {
+            url: targetUrl,
+          });
+          debugLog("open_link_result", {
+            url: targetUrl,
+            isError: Boolean(openLinkResult?.isError),
+          });
+          if (!openLinkResult?.isError) {
+            return;
+          }
+        } catch (error) {
+          debugLog("open_link_request_error", {
+            url: targetUrl,
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        }
+
+        if (typeof window.openai?.openUrl === "function") {
+          try {
+            await window.openai.openUrl(targetUrl);
+            return;
+          } catch (_error) {
+            // fall through to browser fallback
+          }
+        }
+
+        try {
+          window.open(targetUrl, "_blank", "noopener,noreferrer");
+        } catch (_error) {
+          debugLog("open_link_popup_blocked", {
+            url: targetUrl,
+            level: "warn",
+          });
+        }
+      };
+
+      return {
+        initialize,
+        callTool,
+        openLink,
+        sendNotification,
+      };
+    };
+
+    const hostBridge = createHostBridge();
+    let sizeObserver = null;
+    let lastReportedHeight = 0;
+
+    const reportWidgetSize = () => {
+      const bodyHeight = Math.ceil(document.body?.scrollHeight || 0);
+      const docHeight = Math.ceil(document.documentElement?.scrollHeight || 0);
+      const nextHeight = Math.max(bodyHeight, docHeight);
+      if (nextHeight <= 0 || nextHeight === lastReportedHeight) {
+        return;
+      }
+      lastReportedHeight = nextHeight;
+      hostBridge.sendNotification("ui/notifications/size-changed", {
+        height: nextHeight,
+      });
+    };
+
+    const startAutoResize = () => {
+      if (typeof ResizeObserver !== "function" || sizeObserver) {
+        reportWidgetSize();
+        return;
+      }
+      sizeObserver = new ResizeObserver(() => {
+        reportWidgetSize();
+      });
+      sizeObserver.observe(document.body);
+      sizeObserver.observe(document.documentElement);
+      reportWidgetSize();
+    };
 
     const extractToolPage = (payload) => {
       if (!payload || typeof payload !== "object") {
@@ -77,12 +273,14 @@
         return null;
       }
       const candidates = [
-        rawMessage,
         rawMessage.payload,
         rawMessage.data,
+        rawMessage.params,
+        rawMessage.params?.structuredContent,
         rawMessage.result,
         rawMessage.result?.structuredContent,
         rawMessage.structuredContent,
+        rawMessage,
       ];
       for (const candidate of candidates) {
         if (!candidate || typeof candidate !== "object") {
@@ -100,6 +298,16 @@
       if (!payload || typeof payload !== "object") {
         return false;
       }
+      const requestedPage = extractToolPage(payload);
+      const hasWidgetPayload =
+        hasSearchResultsPayload(payload) ||
+        Boolean(normalizeText(payload.api_base_url)) ||
+        Boolean(normalizeLanguage(payload.language)) ||
+        Boolean(requestedPage) ||
+        isThemePayload(payload);
+      if (!hasWidgetPayload) {
+        return false;
+      }
       if (normalizeText(payload.api_base_url)) {
         state.apiBaseUrl = normalizeText(payload.api_base_url);
       }
@@ -107,7 +315,6 @@
       if (language) {
         state.language = language;
       }
-      const requestedPage = extractToolPage(payload);
       if (requestedPage) {
         state.requestedPage = requestedPage;
       }
@@ -269,11 +476,25 @@
         }
 
         const onMessage = (event) => {
+          debugLog("raw_host_message", {
+            origin: event?.origin,
+            method: event?.data?.method,
+            hasParams: Boolean(event?.data?.params),
+            hasResult: Boolean(event?.data?.result),
+            hasStructuredContent: Boolean(
+              event?.data?.structuredContent ||
+                event?.data?.params?.structuredContent ||
+                event?.data?.result?.structuredContent,
+            ),
+          });
           const messagePayload = extractPayloadFromMessage(event?.data);
           if (!messagePayload) {
             return;
           }
           if (!applyInitialToolPayload(messagePayload)) {
+            debugLog("initial_payload_rejected", {
+              keys: Object.keys(messagePayload).slice(0, 8),
+            });
             return;
           }
           window.clearInterval(intervalId);
@@ -285,6 +506,19 @@
         };
 
         window.addEventListener("message", onMessage, { passive: true });
+
+        debugLog("initial_payload_check", {
+          hasMcpToolResult: Boolean(window.__MCP_TOOL_RESULT__),
+          hasOpenaiToolResult: Boolean(window.openai?.toolResult),
+          hasOpenaiStructuredContent: Boolean(window.openai?.structuredContent),
+        });
+
+        hostBridge.initialize().catch((error) => {
+          debugLog("host_initialize_error", {
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        });
 
         const intervalId = window.setInterval(() => {
           if (!tryHydrateInitialPayload()) {
@@ -324,10 +558,7 @@
       setLoading(true);
 
       try {
-        if (typeof window.openai?.callTool !== "function") {
-          throw new Error("openai.callTool is unavailable");
-        }
-        const toolResult = await window.openai.callTool("search_products", {
+        const toolResult = await hostBridge.callTool("search_products", {
           query: normalized,
           language,
         });
@@ -364,8 +595,10 @@
     };
 
     ctx.actions.searchProducts = searchProducts;
+    ctx.actions.openExternalLink = (url) => hostBridge.openLink(url);
     ctx.tools.waitForInitialPayload = waitForInitialPayload;
     ctx.tools.listenForThemeUpdates = listenForThemeUpdates;
+    startAutoResize();
   };
 
   window.ProductsTools = {

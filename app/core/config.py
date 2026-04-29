@@ -26,7 +26,7 @@ class AppSettings(BaseSettings):
     mcp_tracking_cache_ttl_seconds: float = Field(default=10.0, gt=0)
     mcp_checkout_reference_cache_ttl_seconds: float = Field(default=300.0, gt=0)
     mcp_tool_cache_max_entries: int = Field(default=256, gt=0)
-    mcp_widget_domain: str = "https://subgerminal-yevette-lactogenic.ngrok-free.dev"
+    mcp_widget_domain: str = ""
 
 
 @lru_cache(maxsize=1)

@@ -174,7 +174,11 @@
         if (!(link instanceof HTMLAnchorElement)) {
           continue;
         }
-        link.addEventListener("click", () => {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          if (typeof ctx.actions.openExternalLink === "function") {
+            ctx.actions.openExternalLink(link.href);
+          }
           debugLog("buy_link_click", { url: link.href });
         });
       }

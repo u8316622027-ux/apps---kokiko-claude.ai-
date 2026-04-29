@@ -55,11 +55,14 @@ def test_inline_local_widget_assets_inlines_local_files() -> None:
     assert "../secrets.css" in result
 
 
-def test_build_tool_success_text_round_trips_payload() -> None:
-    payload = {"status": "ok", "count": 2, "items": ["a", "b"]}
-    encoded = mcp_server._build_tool_success_text(payload)
-
-    assert json.loads(encoded) == payload
+def test_build_widget_html_escapes_script_tag() -> None:
+    payload = {"name": "Тест</script><script>alert(1)//", "price": 99}
+    result = mcp_server._build_widget_html_with_data("ui://widget/products.html", payload)
+    # When the widget HTML exists the injected JSON must not contain raw </script>
+    if result is not None:
+        assert (
+            "</script>" not in result.split("window.__MCP_TOOL_RESULT__=")[1].split(";</script>")[0]
+        )
 
 
 def test_handle_rpc_request_tool_error_omits_http_request_id() -> None:
