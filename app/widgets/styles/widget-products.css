@@ -66,10 +66,16 @@ body {
   justify-content: center;
   align-items: flex-start;
   padding: 12px;
-  background:
-    radial-gradient(1000px 500px at -8% -20%, rgba(100, 227, 213, 0.16), transparent 52%),
-    radial-gradient(700px 420px at 108% -10%, rgba(43, 87, 216, 0.14), transparent 54%),
-    var(--kokiko-bg-page);
+  background: radial-gradient(
+      1000px 500px at -8% -20%,
+      rgba(100, 227, 213, 0.16),
+      transparent 52%
+    ),
+    radial-gradient(
+      700px 420px at 108% -10%,
+      rgba(43, 87, 216, 0.14),
+      transparent 54%
+    ), var(--kokiko-bg-page);
 }
 
 .widget-shell.search-mock {
@@ -189,7 +195,8 @@ body {
   box-sizing: border-box;
   font-size: 14px;
   letter-spacing: 0.01em;
-  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color
+    160ms ease;
 }
 
 .search-input-wrap input::placeholder {
@@ -470,7 +477,11 @@ body {
 
 .skeleton-card {
   border: 1px solid rgba(122, 148, 203, 0.35);
-  background: linear-gradient(170deg, rgba(26, 34, 52, 0.96), rgba(16, 24, 40, 0.96));
+  background: linear-gradient(
+    170deg,
+    rgba(26, 34, 52, 0.96),
+    rgba(16, 24, 40, 0.96)
+  );
   padding: 11px;
   min-height: 360px;
   display: flex;
@@ -528,7 +539,11 @@ body {
   height: 86px;
   border-radius: 18px;
   border: 1px solid rgba(88, 116, 176, 0.72);
-  background: linear-gradient(180deg, rgba(20, 34, 62, 0.96), rgba(25, 46, 88, 0.9));
+  background: linear-gradient(
+    180deg,
+    rgba(20, 34, 62, 0.96),
+    rgba(25, 46, 88, 0.9)
+  );
   color: #d9e5ff;
   display: grid;
   place-items: center;

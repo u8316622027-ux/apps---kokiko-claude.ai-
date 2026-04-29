@@ -174,7 +174,13 @@ def handle_rpc_request(
             "id": request_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}, "resources": {}},
+                "capabilities": {
+                    "tools": {},
+                    "resources": {},
+                    "extensions": {
+                        "io.modelcontextprotocol/ui": {"mimeTypes": ["text/html;profile=mcp-app"]}
+                    },
+                },
                 "serverInfo": {"name": "apteka-mcp", "version": "0.1.0"},
             },
         }
@@ -194,6 +200,14 @@ def handle_rpc_request(
                     "mimeType": "text/html;profile=mcp-app",
                     "description": description,
                     "_meta": {
+                        "ui": {
+                            "csp": {
+                                "connectDomains": connect_domains,
+                                "resourceDomains": resource_domains,
+                            },
+                            "domain": ui_domain,
+                            "prefersBorder": bool(resource_data["prefers_border"]),
+                        },
                         "openai/widgetDescription": description,
                         "openai/widgetDomain": ui_domain,
                         "openai/widgetCSP": {
@@ -238,6 +252,14 @@ def handle_rpc_request(
                         "mimeType": "text/html;profile=mcp-app",
                         "text": html_text,
                         "_meta": {
+                            "ui": {
+                                "csp": {
+                                    "connectDomains": list(resource_data["connect_domains"]),
+                                    "resourceDomains": list(resource_data["resource_domains"]),
+                                },
+                                "domain": str(resource_data["domain"]),
+                                "prefersBorder": bool(resource_data["prefers_border"]),
+                            },
                             "openai/widgetDescription": str(resource_data["description"]),
                             "openai/widgetDomain": str(resource_data["domain"]),
                             "openai/widgetCSP": {
@@ -481,6 +503,7 @@ def _widget_resource_index() -> dict[str, dict[str, Any]]:
                 "path": relative_path,
                 "description": tool.description,
                 "domain": ui_domain,
+                "prefers_border": bool(tool.ui.get("prefersBorder", True)),
                 "resource_domains": normalized_resource_domains,
                 "connect_domains": normalized_connect_domains,
             },

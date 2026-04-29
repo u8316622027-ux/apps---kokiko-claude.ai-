@@ -13,6 +13,113 @@
       setLoading,
       debugLog,
     } = utils;
+    const HOST_PROTOCOL_VERSION = "2026-01-26";
+
+    const createHostBridge = () => {
+      const targetWindow =
+        window.parent && window.parent !== window ? window.parent : window;
+      let nextRequestId = 1;
+      let initializePromise = null;
+
+      const sendNotification = (method, params) => {
+        try {
+          targetWindow.postMessage(
+            { jsonrpc: "2.0", method, params: params || {} },
+            "*",
+          );
+        } catch (error) {
+          debugLog("host_notification_error", {
+            method,
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        }
+      };
+
+      const sendRequest = (method, params) =>
+        new Promise((resolve, reject) => {
+          const requestId = `mcp-ui-${nextRequestId++}`;
+          const onMessage = (event) => {
+            const payload = event?.data;
+            if (
+              !payload ||
+              typeof payload !== "object" ||
+              payload.id !== requestId
+            ) {
+              return;
+            }
+            window.removeEventListener("message", onMessage);
+            if (payload.error) {
+              reject(
+                new Error(
+                  typeof payload.error.message === "string"
+                    ? payload.error.message
+                    : "MCP host request failed",
+                ),
+              );
+              return;
+            }
+            resolve(payload.result || {});
+          };
+          window.addEventListener("message", onMessage, { passive: true });
+          targetWindow.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: requestId,
+              method,
+              params: params || {},
+            },
+            "*",
+          );
+        });
+
+      const initialize = () => {
+        if (typeof window.openai?.callTool === "function") {
+          return Promise.resolve({});
+        }
+        if (initializePromise) {
+          return initializePromise;
+        }
+        initializePromise = sendRequest("ui/initialize", {
+          protocolVersion: HOST_PROTOCOL_VERSION,
+          clientInfo: {
+            name: "kokiko-products-widget",
+            version: "0.1.0",
+          },
+          appCapabilities: {
+            tools: {},
+            availableDisplayModes: ["inline", "fullscreen"],
+          },
+        })
+          .then((result) => {
+            sendNotification("ui/notifications/initialized", {});
+            return result;
+          })
+          .catch((error) => {
+            initializePromise = null;
+            throw error;
+          });
+        return initializePromise;
+      };
+
+      const callTool = async (name, argumentsPayload) => {
+        if (typeof window.openai?.callTool === "function") {
+          return window.openai.callTool(name, argumentsPayload);
+        }
+        await initialize();
+        return sendRequest("tools/call", {
+          name,
+          arguments: argumentsPayload || {},
+        });
+      };
+
+      return {
+        initialize,
+        callTool,
+      };
+    };
+
+    const hostBridge = createHostBridge();
 
     const extractToolPage = (payload) => {
       if (!payload || typeof payload !== "object") {
@@ -77,12 +184,14 @@
         return null;
       }
       const candidates = [
-        rawMessage,
         rawMessage.payload,
         rawMessage.data,
+        rawMessage.params,
+        rawMessage.params?.structuredContent,
         rawMessage.result,
         rawMessage.result?.structuredContent,
         rawMessage.structuredContent,
+        rawMessage,
       ];
       for (const candidate of candidates) {
         if (!candidate || typeof candidate !== "object") {
@@ -100,6 +209,16 @@
       if (!payload || typeof payload !== "object") {
         return false;
       }
+      const requestedPage = extractToolPage(payload);
+      const hasWidgetPayload =
+        hasSearchResultsPayload(payload) ||
+        Boolean(normalizeText(payload.api_base_url)) ||
+        Boolean(normalizeLanguage(payload.language)) ||
+        Boolean(requestedPage) ||
+        isThemePayload(payload);
+      if (!hasWidgetPayload) {
+        return false;
+      }
       if (normalizeText(payload.api_base_url)) {
         state.apiBaseUrl = normalizeText(payload.api_base_url);
       }
@@ -107,7 +226,6 @@
       if (language) {
         state.language = language;
       }
-      const requestedPage = extractToolPage(payload);
       if (requestedPage) {
         state.requestedPage = requestedPage;
       }
@@ -286,6 +404,13 @@
 
         window.addEventListener("message", onMessage, { passive: true });
 
+        hostBridge.initialize().catch((error) => {
+          debugLog("host_initialize_error", {
+            message: String(error?.message ? error.message : error),
+            level: "warn",
+          });
+        });
+
         const intervalId = window.setInterval(() => {
           if (!tryHydrateInitialPayload()) {
             return;
@@ -324,10 +449,7 @@
       setLoading(true);
 
       try {
-        if (typeof window.openai?.callTool !== "function") {
-          throw new Error("openai.callTool is unavailable");
-        }
-        const toolResult = await window.openai.callTool("search_products", {
+        const toolResult = await hostBridge.callTool("search_products", {
           query: normalized,
           language,
         });

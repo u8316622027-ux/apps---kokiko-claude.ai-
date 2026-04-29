@@ -83,6 +83,10 @@ def serialize_tool_definition(tool: ToolDefinition) -> dict[str, Any]:
         "inputSchema": tool.input_schema,
         "ui": tool.ui,
         "_meta": {
+            "ui": {
+                "resourceUri": tool.output_template,
+                "visibility": ["model", "app"],
+            },
             "openai/widgetDomain": ui_domain,
             "openai/widgetCSP": {
                 "connect_domains": list(connect_domains),
@@ -155,6 +159,7 @@ def _build_widget_ui_config() -> dict[str, Any]:
     ]
     return {
         "domain": widget_domain,
+        "prefersBorder": True,
         "csp": {
             "connectDomains": [apteka_base_url],
             "resourceDomains": resource_domains,
