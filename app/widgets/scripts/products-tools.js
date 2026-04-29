@@ -20,12 +20,13 @@
         window.parent && window.parent !== window ? window.parent : window;
       let nextRequestId = 1;
       let initializePromise = null;
+      let hostOrigin = "*";
 
       const sendNotification = (method, params) => {
         try {
           targetWindow.postMessage(
             { jsonrpc: "2.0", method, params: params || {} },
-            "*",
+            hostOrigin,
           );
         } catch (error) {
           debugLog("host_notification_error", {
@@ -55,6 +56,9 @@
               payload.id !== requestId
             ) {
               return;
+            }
+            if (hostOrigin === "*" && event.origin && event.origin !== "null") {
+              hostOrigin = event.origin;
             }
             if (payload.error) {
               settle(
@@ -172,6 +176,7 @@
         initialize,
         callTool,
         openLink,
+        sendNotification,
       };
     };
 
@@ -187,14 +192,9 @@
         return;
       }
       lastReportedHeight = nextHeight;
-      window.parent?.postMessage(
-        {
-          jsonrpc: "2.0",
-          method: "ui/notifications/size-changed",
-          params: { height: nextHeight },
-        },
-        "*",
-      );
+      hostBridge.sendNotification("ui/notifications/size-changed", {
+        height: nextHeight,
+      });
     };
 
     const startAutoResize = () => {
@@ -476,11 +476,25 @@
         }
 
         const onMessage = (event) => {
+          debugLog("raw_host_message", {
+            origin: event?.origin,
+            method: event?.data?.method,
+            hasParams: Boolean(event?.data?.params),
+            hasResult: Boolean(event?.data?.result),
+            hasStructuredContent: Boolean(
+              event?.data?.structuredContent ||
+                event?.data?.params?.structuredContent ||
+                event?.data?.result?.structuredContent,
+            ),
+          });
           const messagePayload = extractPayloadFromMessage(event?.data);
           if (!messagePayload) {
             return;
           }
           if (!applyInitialToolPayload(messagePayload)) {
+            debugLog("initial_payload_rejected", {
+              keys: Object.keys(messagePayload).slice(0, 8),
+            });
             return;
           }
           window.clearInterval(intervalId);
@@ -492,6 +506,12 @@
         };
 
         window.addEventListener("message", onMessage, { passive: true });
+
+        debugLog("initial_payload_check", {
+          hasMcpToolResult: Boolean(window.__MCP_TOOL_RESULT__),
+          hasOpenaiToolResult: Boolean(window.openai?.toolResult),
+          hasOpenaiStructuredContent: Boolean(window.openai?.structuredContent),
+        });
 
         hostBridge.initialize().catch((error) => {
           debugLog("host_initialize_error", {

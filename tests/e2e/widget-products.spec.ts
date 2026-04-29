@@ -105,6 +105,17 @@ test("products widget can search through MCP host postMessage bridge", async ({
             },
             "*",
           );
+          return;
+        }
+        if (payload.method === "ui/open-link") {
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: { isError: false },
+            },
+            "*",
+          );
         }
       });
     })();
@@ -138,6 +149,10 @@ test("products widget can search through MCP host postMessage bridge", async ({
     "href",
     /test-slug/,
   );
+  await page
+    .locator(".buy-link")
+    .first()
+    .evaluate((element) => (element as HTMLAnchorElement).click());
 
   const requestMethods = await page.evaluate(() =>
     Array.isArray(window.__HOST_REQUESTS__)
@@ -146,4 +161,18 @@ test("products widget can search through MCP host postMessage bridge", async ({
   );
   expect(requestMethods).toContain("ui/initialize");
   expect(requestMethods).toContain("tools/call");
+  expect(requestMethods).toContain("ui/notifications/size-changed");
+  expect(requestMethods).toContain("ui/open-link");
+
+  const initializePayload = await page.evaluate(() =>
+    Array.isArray(window.__HOST_REQUESTS__)
+      ? window.__HOST_REQUESTS__.find(
+          (entry) => entry.method === "ui/initialize",
+        )?.params
+      : null,
+  );
+  expect(initializePayload?.appInfo?.name).toBe("kokiko-products-widget");
+  expect(initializePayload?.appCapabilities?.availableDisplayModes).toContain(
+    "inline",
+  );
 });

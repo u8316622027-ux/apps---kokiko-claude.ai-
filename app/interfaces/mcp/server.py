@@ -205,7 +205,13 @@ def handle_rpc_request(
                                 "connectDomains": connect_domains,
                                 "resourceDomains": resource_domains,
                             },
-                            "domain": ui_domain,
+                            **(
+                                {
+                                    "domain": ui_domain,
+                                }
+                                if ui_domain
+                                else {}
+                            ),
                             "prefersBorder": bool(resource_data["prefers_border"]),
                         },
                         "openai/widgetDescription": description,
@@ -257,7 +263,13 @@ def handle_rpc_request(
                                     "connectDomains": list(resource_data["connect_domains"]),
                                     "resourceDomains": list(resource_data["resource_domains"]),
                                 },
-                                "domain": str(resource_data["domain"]),
+                                **(
+                                    {
+                                        "domain": str(resource_data["domain"]),
+                                    }
+                                    if resource_data.get("domain")
+                                    else {}
+                                ),
                                 "prefersBorder": bool(resource_data["prefers_border"]),
                             },
                             "openai/widgetDescription": str(resource_data["description"]),
@@ -317,15 +329,7 @@ def handle_rpc_request(
                     errored=False,
                     cache_hit=True,
                 )
-                return {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {
-                        "content": [],
-                        "structuredContent": structured_payload,
-                        "isError": False,
-                    },
-                }
+                return _build_tool_result_response(request_id, tool_name, tool, structured_payload)
 
         try:
             result_payload = tool.handler(resolved_arguments)
@@ -342,15 +346,7 @@ def handle_rpc_request(
                 errored=False,
                 cache_hit=False if cache_key is not None else None,
             )
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "result": {
-                    "content": [],
-                    "structuredContent": structured_payload,
-                    "isError": False,
-                },
-            }
+            return _build_tool_result_response(request_id, tool_name, tool, structured_payload)
         except Exception as exc:  # noqa: BLE001
             _record_tool_result(
                 tool_name,
@@ -679,9 +675,7 @@ def _build_tool_result_response(
     """Build a tool/call result response using embedded widget HTML when available."""
     template_uri = tool.output_template
     widget_html = (
-        _build_widget_html_with_data(template_uri, structured_payload)
-        if template_uri
-        else None
+        _build_widget_html_with_data(template_uri, structured_payload) if template_uri else None
     )
     if widget_html is not None:
         resource_index = _widget_resource_index()
@@ -701,15 +695,26 @@ def _build_tool_result_response(
                         "_meta": {
                             "ui": {
                                 "csp": {
-                                    "connectDomains": list(resource_data.get("connect_domains", [])),
-                                    "resourceDomains": list(resource_data.get("resource_domains", [])),
+                                    "connectDomains": list(
+                                        resource_data.get("connect_domains", [])
+                                    ),
+                                    "resourceDomains": list(
+                                        resource_data.get("resource_domains", [])
+                                    ),
                                 },
-                                "domain": str(resource_data.get("domain", "")),
+                                **(
+                                    {
+                                        "domain": str(resource_data["domain"]),
+                                    }
+                                    if resource_data.get("domain")
+                                    else {}
+                                ),
                                 "prefersBorder": bool(resource_data.get("prefers_border", True)),
                             },
                         },
                     }
                 ],
+                "structuredContent": structured_payload,
                 "isError": False,
             },
         }
@@ -740,6 +745,9 @@ def _build_widget_html_with_data(
         return None
     html_text = _inline_local_widget_assets(html_text, widget_dir=file_path.parent)
     data_json = json.dumps(structured_payload, ensure_ascii=False, separators=(",", ":"))
+    # Escape </script> so the inline script tag cannot be prematurely closed by
+    # data values that contain the literal string "</script>".
+    data_json = data_json.replace("</", "<\\/")
     injection = f"<script>window.__MCP_TOOL_RESULT__={data_json};</script>"
     if "</head>" in html_text:
         html_text = html_text.replace("</head>", f"{injection}</head>", 1)

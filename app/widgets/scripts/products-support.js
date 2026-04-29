@@ -28,7 +28,8 @@
       };
       try {
         const input = document.createElement("input");
-        input.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0;";
+        input.style.cssText =
+          "position:fixed;top:-9999px;left:-9999px;opacity:0;";
         input.value = text;
         document.body.appendChild(input);
         input.focus();

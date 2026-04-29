@@ -17,6 +17,7 @@
 
     const input = document.getElementById("products-search-input");
     const searchButton = document.getElementById("products-search-button");
+    const logoLink = root.querySelector(".search-logo-link");
     const track = document.getElementById("product-track");
     const leftArrow = document.getElementById("products-arrow-left");
     const rightArrow = document.getElementById("products-arrow-right");
@@ -411,6 +412,7 @@
       dom: {
         input,
         searchButton,
+        logoLink,
         track,
         leftArrow,
         rightArrow,
@@ -427,6 +429,7 @@
       actions: {
         searchProducts: (_query) => Promise.resolve(),
         openSupportPopup: () => {},
+        openExternalLink: (_url) => {},
       },
       tools: {
         waitForInitialPayload: () => Promise.resolve(false),

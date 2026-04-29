@@ -18,7 +18,7 @@
   }
 
   const { state, dom, ui, actions, tools, utils } = ctx;
-  const { input, searchButton, track, leftArrow, rightArrow } = dom;
+  const { input, searchButton, logoLink, track, leftArrow, rightArrow } = dom;
 
   const scrollTrack = (direction) => {
     if (!track) {
@@ -49,6 +49,14 @@
       event.stopPropagation();
       actions.openSupportPopup();
     }
+  });
+
+  logoLink?.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (!(logoLink instanceof HTMLAnchorElement)) {
+      return;
+    }
+    actions.openExternalLink?.(logoLink.href);
   });
 
   searchButton?.addEventListener("click", (event) => {

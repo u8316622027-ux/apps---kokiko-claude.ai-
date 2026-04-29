@@ -35,13 +35,12 @@ def test_supabase_mcp_request_logger_posts_payload(monkeypatch: pytest.MonkeyPat
     logger = SupabaseMcpRequestLogger(
         base_url="https://supabase.example",
         api_key="test-key",
-        table_name="mcp_request_logs",
         urlopen=_fake_urlopen,
     )
 
     logger.log_request({"method": "tools/list"}, {"result": {"tools": []}})
 
-    assert captured["url"] == "https://supabase.example/rest/v1/mcp_request_logs"
+    assert captured["url"] == "https://supabase.example/rest/v1/mcp_request_logs2"
     assert captured["method"] == "POST"
     payload = json.loads(captured["data"])
     assert payload == [
@@ -73,7 +72,6 @@ def test_supabase_mcp_request_logger_surfaces_http_error(
     logger = SupabaseMcpRequestLogger(
         base_url="https://supabase.example",
         api_key="bad-key",
-        table_name="mcp_request_logs",
         urlopen=_fake_urlopen,
     )
 

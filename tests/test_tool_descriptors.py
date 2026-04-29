@@ -57,6 +57,21 @@ def test_widget_ui_config_includes_resource_and_connect_domains(
     assert "https://cdn.jsdelivr.net" not in csp["resourceDomains"]
 
 
+def test_widget_ui_config_normalizes_claude_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "MCP_WIDGET_DOMAIN",
+        "https://88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com",
+    )
+    mcp_server._reset_server_caches_for_tests()
+
+    registry = tool_registry.create_tool_registry()
+    ui_config = registry["search_products"].ui
+    csp = ui_config["csp"]
+
+    assert ui_config["domain"] == "88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com"
+    assert "https://88cb203764ae3f91ef30fbac4037b49a.claudemcpcontent.com" in csp["resourceDomains"]
+
+
 def test_resources_list_uses_snakecase_csp_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from app.core.config import get_settings
 from app.interfaces.mcp.tools.apteka_urls import get_apteka_base_url
@@ -81,11 +82,12 @@ def serialize_tool_definition(tool: ToolDefinition) -> dict[str, Any]:
         "title": tool.title or tool.name,
         "description": tool.description,
         "inputSchema": tool.input_schema,
-        "ui": tool.ui,
+        "ui": {k: v for k, v in tool.ui.items() if k != "domain" or v},
         "_meta": {
             "ui": {
                 "resourceUri": tool.output_template,
                 "visibility": ["model", "app"],
+                **({"domain": ui_domain} if ui_domain else {}),
             },
             "openai/widgetDomain": ui_domain,
             "openai/widgetCSP": {
@@ -141,22 +143,13 @@ def _resolve_widget_page(tool_name: str) -> str:
 
 def _build_widget_ui_config() -> dict[str, Any]:
     settings = get_settings()
-    widget_domain = (
-        str(
-            getattr(
-                settings,
-                "mcp_widget_domain",
-                "https://subgerminal-yevette-lactogenic.ngrok-free.dev",
-            )
-        ).strip()
-        or "https://subgerminal-yevette-lactogenic.ngrok-free.dev"
-    )
+    widget_domain_raw = str(getattr(settings, "mcp_widget_domain", "")).strip()
+    widget_domain = _normalize_widget_domain(widget_domain_raw)
+    widget_resource_origin = _normalize_resource_origin(widget_domain)
     apteka_base_url = get_apteka_base_url()
-    resource_domains = [
-        widget_domain,
-        apteka_base_url,
-        "https://www.apteka.md",
-    ]
+    resource_domains = [apteka_base_url, "https://www.apteka.md"]
+    if widget_resource_origin:
+        resource_domains.insert(0, widget_resource_origin)
     return {
         "domain": widget_domain,
         "prefersBorder": True,
@@ -165,6 +158,31 @@ def _build_widget_ui_config() -> dict[str, Any]:
             "resourceDomains": resource_domains,
         },
     }
+
+
+def _normalize_widget_domain(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme and parsed.netloc:
+        host = parsed.netloc.strip().lower()
+        if host.endswith(".claudemcpcontent.com"):
+            return host
+        return f"{parsed.scheme}://{parsed.netloc}"
+    if normalized.lower().endswith(".claudemcpcontent.com"):
+        return normalized.lower()
+    return normalized
+
+
+def _normalize_resource_origin(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    if not normalized:
+        return ""
+    parsed = urlparse(normalized)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return f"https://{normalized}"
 
 
 def _search_products_handler(arguments: dict[str, Any]) -> dict[str, Any]:
