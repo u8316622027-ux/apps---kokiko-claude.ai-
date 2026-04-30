@@ -206,6 +206,8 @@ def _map_product(item: dict[str, Any]) -> ProductSummary:
 
 def _product_to_dict(product: ProductSummary, *, language: str = "ru") -> dict[str, Any]:
     payload = asdict(product)
+    payload.pop("description_ro", None)
+    payload.pop("description_ru", None)
     normalized_language = _normalize_language(language) or "ru"
     if normalized_language == "ro":
         preferred_name = product.name_ro or product.name_ru

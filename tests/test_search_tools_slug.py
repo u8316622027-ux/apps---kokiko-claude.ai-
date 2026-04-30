@@ -75,3 +75,21 @@ def test_search_repository_sends_market_header() -> None:
     headers = {key.lower(): value for key, value in captured["headers"].items()}
     assert headers["content-type"] == "application/json"
     assert headers["market"] == "kokikomd"
+
+
+def test_search_tool_omits_long_description_fields_from_tool_payload() -> None:
+    item = {
+        "id": 10,
+        "name": "Fallback name",
+        "translations": {
+            "ru": {"name": "Русское имя", "description": "Очень длинное описание"},
+            "ro": {"name": "Nume", "description": "Descriere lunga"},
+        },
+        "description": "Raw description",
+    }
+
+    product = _map_product(item)
+    payload = _product_to_dict(product, language="ru")
+
+    assert "description_ru" not in payload
+    assert "description_ro" not in payload
