@@ -687,13 +687,50 @@ def _build_tool_result_response(
 
 def _build_tool_success_text(tool_name: str, structured_payload: dict[str, Any]) -> str:
     if tool_name == "search_products":
-        count_value = structured_payload.get("count")
-        if isinstance(count_value, int):
-            return f"Found {count_value} products."
         products = structured_payload.get("products")
-        if isinstance(products, list):
-            return f"Found {len(products)} products."
-        return "Search completed."
+        if not isinstance(products, list) or not products:
+            return "No products found."
+        language = str(structured_payload.get("language") or "ru").strip().lower()
+        prefer_ro = language.startswith("ro")
+        lines = [f"Found {len(products)} products:"]
+        for product in products:
+            if not isinstance(product, dict):
+                continue
+            if prefer_ro:
+                name = str(product.get("name_ro") or product.get("name_ru") or product.get("name") or "").strip()
+                slug = str(product.get("slug_ro") or product.get("slug_ru") or "").strip()
+            else:
+                name = str(product.get("name_ru") or product.get("name_ro") or product.get("name") or "").strip()
+                slug = str(product.get("slug_ru") or product.get("slug_ro") or "").strip()
+            if not name:
+                continue
+            discount_price = product.get("discount_price") or product.get("discountPrice")
+            price = product.get("price")
+            if discount_price is not None:
+                try:
+                    price_display = f"{float(discount_price):.2f} MDL"
+                except (TypeError, ValueError):
+                    price_display = ""
+            elif price is not None:
+                try:
+                    price_display = f"{float(price):.2f} MDL"
+                except (TypeError, ValueError):
+                    price_display = ""
+            else:
+                price_display = ""
+            manufacturer = str(product.get("manufacturer") or "").strip()
+            country = str(product.get("country") or "").strip()
+            parts = [f"- {name}"]
+            if price_display:
+                parts.append(f"— {price_display}")
+            if manufacturer:
+                parts.append(f"| {manufacturer}")
+            if country:
+                parts.append(f"| {country}")
+            if slug:
+                parts.append(f"| slug: {slug}")
+            lines.append(" ".join(parts))
+        return "\n".join(lines)
     return "Tool call completed successfully."
 
 
