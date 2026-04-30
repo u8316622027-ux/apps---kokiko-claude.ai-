@@ -42,6 +42,100 @@ test("products widget shell renders", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("products widget falls back for tool-input-partial with direct query field", async ({
+  page,
+}) => {
+  const htmlPath = path.resolve(process.cwd(), "app/widgets/products.html");
+  const html = fs.readFileSync(htmlPath, "utf-8");
+  const hostShim = `<script>
+    (() => {
+      const makeToolResult = (query) => ({
+        content: [{ type: "text", text: "Found products for " + query }],
+        structuredContent: {
+          query,
+          language: "ru",
+          api_base_url: "https://api.apteka.md",
+          products: [
+            {
+              id: "sku-93",
+              name: "РўРµСЃС‚ partial",
+              manufacturer: "KoKiKo",
+              price: 95,
+              slug: "partial-slug",
+              image: "/images/test.png",
+            },
+          ],
+        },
+        isError: false,
+      });
+
+      window.addEventListener("message", (event) => {
+        const payload = event.data;
+        if (!payload || typeof payload !== "object" || !payload.method) {
+          return;
+        }
+        if (payload.method === "ui/initialize") {
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: {
+                protocolVersion: "2026-01-26",
+                capabilities: {},
+                hostContext: { theme: "dark" },
+              },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-input-partial",
+              params: { query: "крем для лица" },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-result",
+              params: { content: [{ type: "text", text: "Found 10 products." }], isError: false },
+            },
+            "*",
+          );
+          return;
+        }
+        if (payload.method === "tools/call") {
+          const query =
+            typeof payload.params?.arguments?.query === "string"
+              ? payload.params.arguments.query
+              : "";
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: makeToolResult(query),
+            },
+            "*",
+          );
+        }
+      });
+    })();
+  </script>`;
+  const instrumentedHtml = inlineWidgetAssets(html).replace(
+    "<head>",
+    `<head>${hostShim}`,
+  );
+
+  await page.setContent(instrumentedHtml, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.locator(".product-title").first()).toContainText(
+    "РўРµСЃС‚ partial",
+  );
+});
+
 test("products widget can search through MCP host postMessage bridge", async ({
   page,
 }) => {

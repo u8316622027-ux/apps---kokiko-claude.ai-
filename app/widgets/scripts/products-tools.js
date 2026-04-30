@@ -243,6 +243,17 @@
       );
     };
 
+    const hasHydrationDataPayload = (payload) => {
+      if (!payload || typeof payload !== "object") {
+        return false;
+      }
+      return (
+        Array.isArray(payload.products) ||
+        Array.isArray(payload.results) ||
+        Object.prototype.hasOwnProperty.call(payload, "no_results")
+      );
+    };
+
     const extractInitialToolPayload = () => {
       const candidates = [
         window.__APTEKA_WIDGET_PAYLOAD__,
@@ -270,20 +281,35 @@
       return null;
     };
 
+    const extractQueryFromToolInput = (params) => {
+      if (!params || typeof params !== "object") {
+        return "";
+      }
+      const candidates = [
+        params.arguments?.query,
+        params.input?.query,
+        params.query,
+      ];
+      for (const candidate of candidates) {
+        const normalized = normalizeText(candidate);
+        if (normalized) {
+          return normalized;
+        }
+      }
+      return "";
+    };
+
     const extractPayloadFromMessage = (rawMessage) => {
       if (!rawMessage || typeof rawMessage !== "object") {
         return null;
       }
-      if (rawMessage.method === "ui/notifications/tool-input") {
-        const args =
-          rawMessage.params && typeof rawMessage.params === "object"
-            ? rawMessage.params.arguments
-            : null;
-        if (args && typeof args === "object") {
-          const incomingQuery = normalizeText(args.query);
-          if (incomingQuery) {
-            pendingToolInputQuery = incomingQuery;
-          }
+      if (
+        rawMessage.method === "ui/notifications/tool-input" ||
+        rawMessage.method === "ui/notifications/tool-input-partial"
+      ) {
+        const incomingQuery = extractQueryFromToolInput(rawMessage.params);
+        if (incomingQuery) {
+          pendingToolInputQuery = incomingQuery;
         }
       }
       const candidates = [
@@ -313,8 +339,12 @@
         return false;
       }
       const requestedPage = extractToolPage(payload);
+      const directQuery = normalizeText(payload.query);
+      if (directQuery && !hasHydrationDataPayload(payload)) {
+        pendingToolInputQuery = directQuery;
+      }
       const hasWidgetPayload =
-        hasSearchResultsPayload(payload) ||
+        hasHydrationDataPayload(payload) ||
         Boolean(normalizeText(payload.api_base_url)) ||
         Boolean(normalizeLanguage(payload.language)) ||
         Boolean(requestedPage) ||
@@ -328,10 +358,16 @@
         if (
           hasCompletedToolResult &&
           !didFallbackHydrate &&
-          pendingToolInputQuery
+          (pendingToolInputQuery ||
+            normalizeText(state.lastQuery) ||
+            normalizeText(input?.value))
         ) {
           didFallbackHydrate = true;
-          searchProducts(pendingToolInputQuery);
+          searchProducts(
+            pendingToolInputQuery ||
+              normalizeText(state.lastQuery) ||
+              normalizeText(input?.value),
+          );
         }
         return false;
       }
@@ -346,7 +382,7 @@
         state.requestedPage = requestedPage;
       }
       theme?.updateFromPayload(payload);
-      const query = normalizeText(payload.query);
+      const query = directQuery;
       if (query) {
         try {
           window.localStorage.setItem(LAST_SEARCH_QUERY_KEY, query);
