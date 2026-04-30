@@ -176,3 +176,241 @@ test("products widget can search through MCP host postMessage bridge", async ({
     "inline",
   );
 });
+
+test("products widget hydrates from host tool-result notification", async ({
+  page,
+}) => {
+  const htmlPath = path.resolve(process.cwd(), "app/widgets/products.html");
+  const html = fs.readFileSync(htmlPath, "utf-8");
+  const hostShim = `<script>
+    (() => {
+      const toolResult = {
+        content: [{ type: "text", text: "Found 1 product." }],
+        structuredContent: {
+          query: "крем",
+          language: "ru",
+          api_base_url: "https://api.apteka.md",
+          products: [
+            {
+              id: "sku-42",
+              name: "Тест крем",
+              manufacturer: "KoKiKo",
+              price: 99,
+              slug: "test-cream",
+              image: "/images/test.png",
+            },
+          ],
+        },
+        isError: false,
+      };
+
+      window.addEventListener("message", (event) => {
+        const payload = event.data;
+        if (!payload || typeof payload !== "object" || !payload.method) {
+          return;
+        }
+        if (payload.method === "ui/initialize") {
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: {
+                protocolVersion: "2026-01-26",
+                capabilities: {},
+                hostContext: { theme: "light" },
+              },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-result",
+              params: toolResult,
+            },
+            "*",
+          );
+        }
+      });
+    })();
+  </script>`;
+  const instrumentedHtml = inlineWidgetAssets(html).replace(
+    "<head>",
+    `<head>${hostShim}`,
+  );
+
+  await page.setContent(instrumentedHtml, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.locator(".product-title").first()).toContainText(
+    "Тест крем",
+  );
+});
+
+test("products widget hydrates from host message with result.structuredContent", async ({
+  page,
+}) => {
+  const htmlPath = path.resolve(process.cwd(), "app/widgets/products.html");
+  const html = fs.readFileSync(htmlPath, "utf-8");
+  const hostShim = `<script>
+    (() => {
+      const toolResult = {
+        content: [{ type: "text", text: "Found 1 product." }],
+        structuredContent: {
+          query: "сыворотка",
+          language: "ru",
+          api_base_url: "https://api.apteka.md",
+          products: [
+            {
+              id: "sku-77",
+              name: "Тест сыворотка",
+              manufacturer: "KoKiKo",
+              price: 111,
+              slug: "test-serum",
+              image: "/images/test.png",
+            },
+          ],
+        },
+        isError: false,
+      };
+
+      window.addEventListener("message", (event) => {
+        const payload = event.data;
+        if (!payload || typeof payload !== "object" || !payload.method) {
+          return;
+        }
+        if (payload.method === "ui/initialize") {
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: {
+                protocolVersion: "2026-01-26",
+                capabilities: {},
+                hostContext: { theme: "dark" },
+              },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              result: toolResult,
+            },
+            "*",
+          );
+        }
+      });
+    })();
+  </script>`;
+  const instrumentedHtml = inlineWidgetAssets(html).replace(
+    "<head>",
+    `<head>${hostShim}`,
+  );
+
+  await page.setContent(instrumentedHtml, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.locator(".product-title").first()).toContainText(
+    "Тест сыворотка",
+  );
+});
+
+test("products widget falls back to tools/call when tool-result misses structuredContent", async ({
+  page,
+}) => {
+  const htmlPath = path.resolve(process.cwd(), "app/widgets/products.html");
+  const html = fs.readFileSync(htmlPath, "utf-8");
+  const hostShim = `<script>
+    (() => {
+      const requests = [];
+      const makeToolResult = (query) => ({
+        content: [{ type: "text", text: "Found products for " + query }],
+        structuredContent: {
+          query,
+          language: "ru",
+          api_base_url: "https://api.apteka.md",
+          products: [
+            {
+              id: "sku-91",
+              name: "Тест fallback",
+              manufacturer: "KoKiKo",
+              price: 100,
+              slug: "fallback-slug",
+              image: "/images/test.png",
+            },
+          ],
+        },
+        isError: false,
+      });
+
+      window.__HOST_REQUESTS__ = requests;
+      window.addEventListener("message", (event) => {
+        const payload = event.data;
+        if (!payload || typeof payload !== "object" || !payload.method) {
+          return;
+        }
+        requests.push(payload);
+        if (payload.method === "ui/initialize") {
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: {
+                protocolVersion: "2026-01-26",
+                capabilities: {},
+                hostContext: { theme: "dark" },
+              },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-input",
+              params: { arguments: { query: "крем для лица", language: "ru" } },
+            },
+            "*",
+          );
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-result",
+              params: { content: [{ type: "text", text: "Found 6 products." }], isError: false },
+            },
+            "*",
+          );
+          return;
+        }
+        if (payload.method === "tools/call") {
+          const query =
+            typeof payload.params?.arguments?.query === "string"
+              ? payload.params.arguments.query
+              : "";
+          window.postMessage(
+            {
+              jsonrpc: "2.0",
+              id: payload.id,
+              result: makeToolResult(query),
+            },
+            "*",
+          );
+        }
+      });
+    })();
+  </script>`;
+  const instrumentedHtml = inlineWidgetAssets(html).replace(
+    "<head>",
+    `<head>${hostShim}`,
+  );
+
+  await page.setContent(instrumentedHtml, {
+    waitUntil: "domcontentloaded",
+  });
+
+  await expect(page.locator(".product-title").first()).toContainText(
+    "Тест fallback",
+  );
+});

@@ -14,6 +14,8 @@
       debugLog,
     } = utils;
     const HOST_PROTOCOL_VERSION = "2026-01-26";
+    let pendingToolInputQuery = "";
+    let didFallbackHydrate = false;
 
     const createHostBridge = () => {
       const targetWindow =
@@ -272,13 +274,25 @@
       if (!rawMessage || typeof rawMessage !== "object") {
         return null;
       }
+      if (rawMessage.method === "ui/notifications/tool-input") {
+        const args =
+          rawMessage.params && typeof rawMessage.params === "object"
+            ? rawMessage.params.arguments
+            : null;
+        if (args && typeof args === "object") {
+          const incomingQuery = normalizeText(args.query);
+          if (incomingQuery) {
+            pendingToolInputQuery = incomingQuery;
+          }
+        }
+      }
       const candidates = [
         rawMessage.payload,
         rawMessage.data,
-        rawMessage.params,
         rawMessage.params?.structuredContent,
-        rawMessage.result,
         rawMessage.result?.structuredContent,
+        rawMessage.params,
+        rawMessage.result,
         rawMessage.structuredContent,
         rawMessage,
       ];
@@ -306,6 +320,19 @@
         Boolean(requestedPage) ||
         isThemePayload(payload);
       if (!hasWidgetPayload) {
+        const hasCompletedToolResult =
+          payload &&
+          typeof payload === "object" &&
+          Array.isArray(payload.content) &&
+          Object.prototype.hasOwnProperty.call(payload, "isError");
+        if (
+          hasCompletedToolResult &&
+          !didFallbackHydrate &&
+          pendingToolInputQuery
+        ) {
+          didFallbackHydrate = true;
+          searchProducts(pendingToolInputQuery);
+        }
         return false;
       }
       if (normalizeText(payload.api_base_url)) {
