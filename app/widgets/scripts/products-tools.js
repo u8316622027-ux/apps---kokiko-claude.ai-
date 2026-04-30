@@ -347,8 +347,7 @@
         hasHydrationDataPayload(payload) ||
         Boolean(normalizeText(payload.api_base_url)) ||
         Boolean(normalizeLanguage(payload.language)) ||
-        Boolean(requestedPage) ||
-        isThemePayload(payload);
+        Boolean(requestedPage);
       if (!hasWidgetPayload) {
         const hasCompletedToolResult =
           payload &&
