@@ -95,6 +95,30 @@ def test_handle_rpc_request_tool_error_omits_http_request_id() -> None:
     assert "http_request_id" not in error_payload
 
 
+def test_build_tool_result_response_keeps_content_compact_for_widget_tools() -> None:
+    tool = tool_registry.ToolDefinition(
+        name="search_products",
+        description="Search products",
+        input_schema={"type": "object", "properties": {}},
+        handler=lambda _: {"products": []},
+        output_template="ui://widget/products.html",
+        ui={},
+    )
+
+    response = mcp_server._build_tool_result_response(
+        request_id="1",
+        tool_name="search_products",
+        tool=tool,
+        structured_payload={"query": "крем", "count": 1, "products": [{"id": "1"}]},
+    )
+
+    content = response["result"]["content"]
+    assert isinstance(content, list)
+    assert content
+    assert content[0]["type"] == "text"
+    assert "<!doctype html>" not in content[0]["text"].lower()
+
+
 def test_handle_jsonrpc_payload_notification_returns_none() -> None:
     response = mcp_server.handle_jsonrpc_payload({"jsonrpc": "2.0", "method": "initialize"})
 

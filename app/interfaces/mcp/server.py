@@ -672,61 +672,29 @@ def _build_tool_result_response(
     tool: ToolDefinition,
     structured_payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build a tool/call result response using embedded widget HTML when available."""
-    template_uri = tool.output_template
-    widget_html = (
-        _build_widget_html_with_data(template_uri, structured_payload) if template_uri else None
-    )
-    if widget_html is not None:
-        resource_index = _widget_resource_index()
-        resource_data = resource_index.get(template_uri.strip(), {})
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "result": {
-                "content": [
-                    {
-                        "type": "resource",
-                        "resource": {
-                            "uri": template_uri,
-                            "mimeType": "text/html;profile=mcp-app",
-                            "text": widget_html,
-                        },
-                        "_meta": {
-                            "ui": {
-                                "csp": {
-                                    "connectDomains": list(
-                                        resource_data.get("connect_domains", [])
-                                    ),
-                                    "resourceDomains": list(
-                                        resource_data.get("resource_domains", [])
-                                    ),
-                                },
-                                **(
-                                    {
-                                        "domain": str(resource_data["domain"]),
-                                    }
-                                    if resource_data.get("domain")
-                                    else {}
-                                ),
-                                "prefersBorder": bool(resource_data.get("prefers_border", True)),
-                            },
-                        },
-                    }
-                ],
-                "structuredContent": structured_payload,
-                "isError": False,
-            },
-        }
+    """Build a compact tool/call result response."""
+    success_text = _build_tool_success_text(tool_name, structured_payload)
     return {
         "jsonrpc": "2.0",
         "id": request_id,
         "result": {
-            "content": [],
+            "content": [{"type": "text", "text": success_text}],
             "structuredContent": structured_payload,
             "isError": False,
         },
     }
+
+
+def _build_tool_success_text(tool_name: str, structured_payload: dict[str, Any]) -> str:
+    if tool_name == "search_products":
+        count_value = structured_payload.get("count")
+        if isinstance(count_value, int):
+            return f"Found {count_value} products."
+        products = structured_payload.get("products")
+        if isinstance(products, list):
+            return f"Found {len(products)} products."
+        return "Search completed."
+    return "Tool call completed successfully."
 
 
 def _build_widget_html_with_data(
