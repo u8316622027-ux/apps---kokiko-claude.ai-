@@ -36,7 +36,7 @@ def create_tool_registry() -> dict[str, ToolDefinition]:
             name="search_products",
             title="Search products",
             description=(
-                "Search products by free-text query via Stage API. "
+                "Search Kokiko beauty products by name or free-text query. "
                 "Args: query and optional limit. "
                 "Returns structuredContent.products and structuredContent.no_results when empty."
             ),
@@ -56,6 +56,7 @@ def create_tool_registry() -> dict[str, ToolDefinition]:
             output_template="ui://widget/products.html",
             ui=widget_ui_config,
             annotations={
+                "title": "Search products",
                 "readOnlyHint": True,
                 "openWorldHint": True,
                 "destructiveHint": False,

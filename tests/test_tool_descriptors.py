@@ -37,6 +37,26 @@ def test_tool_descriptor_annotations() -> None:
     assert payload["annotations"]["destructiveHint"] is False
 
 
+@pytest.mark.parametrize("custom_registry", [False, True])
+def test_tools_list_includes_title_annotation_for_claude_directory(
+    custom_registry: bool,
+) -> None:
+    response = mcp_server.handle_rpc_request(
+        {"jsonrpc": "2.0", "id": "title-check", "method": "tools/list"},
+        registry=tool_registry.create_tool_registry() if custom_registry else None,
+    )
+
+    tool = response["result"]["tools"][0]
+    assert tool["annotations"]["title"] == tool["title"] == "Search products"
+
+
+def test_search_description_identifies_kokiko_without_claiming_a_stage_api() -> None:
+    tool = tool_registry.create_tool_registry()["search_products"]
+
+    assert "Kokiko" in tool.description
+    assert "Stage API" not in tool.description
+
+
 def test_theme_tool_is_removed() -> None:
     registry = tool_registry.create_tool_registry()
     assert "set_widget_theme" not in registry

@@ -697,10 +697,14 @@ def _build_tool_success_text(tool_name: str, structured_payload: dict[str, Any])
             if not isinstance(product, dict):
                 continue
             if prefer_ro:
-                name = str(product.get("name_ro") or product.get("name_ru") or product.get("name") or "").strip()
+                name = str(
+                    product.get("name_ro") or product.get("name_ru") or product.get("name") or ""
+                ).strip()
                 slug = str(product.get("slug_ro") or product.get("slug_ru") or "").strip()
             else:
-                name = str(product.get("name_ru") or product.get("name_ro") or product.get("name") or "").strip()
+                name = str(
+                    product.get("name_ru") or product.get("name_ro") or product.get("name") or ""
+                ).strip()
                 slug = str(product.get("slug_ru") or product.get("slug_ro") or "").strip()
             if not name:
                 continue
